@@ -1,0 +1,69 @@
+# ═══════════════════════════════════════════════════════════════════
+# Polymarket Alpha Bot — Docker Compose Production Stack
+# ═══════════════════════════════════════════════════════════════════
+version: "3.9"
+
+services:
+  # ── Main Bot ──────────────────────────────────────────────────
+  bot:
+    build: .
+    container_name: poly-alpha-bot
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      - BOT_ENV=${BOT_ENV:-paper}
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+    volumes:
+      - bot_data:/home/bot/app/data
+      - bot_logs:/home/bot/app/logs
+    networks:
+      - alpha-net
+    healthcheck:
+      test: ["CMD", "python", "-c", "from src.data.database import Database; Database(); print('OK')"]
+      interval: 60s
+      timeout: 10s
+      retries: 3
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: "1.0"
+
+  # ── ML Training Worker (optional, separate process) ───────────
+  ml-worker:
+    build: .
+    container_name: poly-ml-worker
+    restart: unless-stopped
+    env_file: .env
+    command: python -m src.signals.ml_model --train --loop --interval 3600
+    volumes:
+      - bot_data:/home/bot/app/data
+    networks:
+      - alpha-net
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+          cpus: "0.5"
+
+  # ── Dashboard (optional, serves the HTML) ─────────────────────
+  dashboard:
+    image: nginx:alpine
+    container_name: poly-dashboard
+    restart: unless-stopped
+    ports:
+      - "8080:80"
+    volumes:
+      - ./polymarket-alpha-bot-dashboard.html:/usr/share/nginx/html/index.html:ro
+    networks:
+      - alpha-net
+
+volumes:
+  bot_data:
+    driver: local
+  bot_logs:
+    driver: local
+
+networks:
+  alpha-net:
+    driver: bridge
